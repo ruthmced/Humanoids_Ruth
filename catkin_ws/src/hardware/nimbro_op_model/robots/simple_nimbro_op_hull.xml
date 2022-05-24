@@ -25,11 +25,6 @@
     </collision>
   </link>
 
-  <joint name="fixed" type="fixed">
-    <parent link="world"/>
-    <child link="trunk_link"/>
-  </joint>
-
   <link name="right_hip_yaw_link">
     <inertial>
       <origin xyz="4.7878E-16 2.8449E-16 -0.013803" rpy="0 0 0" />

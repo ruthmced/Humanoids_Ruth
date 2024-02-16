@@ -10,7 +10,7 @@ Y_BODY_TO_FEET  = 0.12 # [m]
 Z_ROBOT_WALK    = 0.68 # m
 Z_ROBOT_STATIC= 0.75 # m
 
-# stepHeight = 0.2
+stepHeight = 0.2
 STEP_LENGTH = 0.2 # [m]
 ROBOT_VEL_X = 0.1 # [m]
 
@@ -59,8 +59,8 @@ def main():
     #This is a harcoded value that can be modified later
 
     starting_body_points = np.array([
-                     [0,-0.67*Y_BODY_TO_FEET],
                      [0,0],
+                     [0,-0.67*Y_BODY_TO_FEET],
                      [Z_ROBOT_STATIC, Z_ROBOT_WALK]]
                     )
 
@@ -68,15 +68,18 @@ def main():
 
     time_vector = np.linspace(timepoints[0],timepoints[1], math.floor(1/SAMPLE_TIME))
 
-    m_x = (starting_body_points[0][1] - starting_body_points[0][0])/(timepoints[1]-timepoints[0])
+    #Applying linear interpolation to generate first trajectory
+    m_y = (starting_body_points[1][1] - starting_body_points[1][0])/(timepoints[1]-timepoints[0])
     m_z = (starting_body_points[2][1] - starting_body_points[2][0])/(timepoints[1]-timepoints[0])
-
     q_x = 0
-    q_y = interpolate.interp1d(time_vector, time_vector*m_x*SAMPLE_TIME, fill_value="extrapolate")
+    q_y = interpolate.interp1d(time_vector, 
+                               time_vector*m_y*SAMPLE_TIME,
+                               fill_value="extrapolate")
     q_z = interpolate.interp1d(time_vector, 
                                starting_body_points[2][0] + time_vector*m_z*SAMPLE_TIME,
                                fill_value="extrapolate")
-
+    
+    #Generating point array for trajectory
     for i in np.arange(0,len(time_vector)):
         aux = np.array([[q_x, q_y(i), q_z(i)]])
         body_position = np.concatenate((body_position,aux), axis=0)
@@ -106,19 +109,16 @@ def main():
     steps.append(start_pose_step)
     
     ax = plt.figure().add_subplot(projection='3d')
-    ax.plot(body_position[:,0],body_position[:,1],body_position[:,2], "o")    
-    plt.show()
-    exit()
 
     #################################################################
     ## PART 2: MAKE A HALF STEP
     #################################################################
     # Store left and right foothold position (left:odd, right:even)
 
-    #TODO COMENZAR A PARTIR DE AQUI CON EL SIGUIENTE STEP, EL ANTERIOR YA ESTA
-
-    final_halfstep_position = np.array([[0],[0.1],[Z_ROBOT_WALK]])
+    final_halfstep_position = np.array([[0.05],[0],[Z_ROBOT_WALK]])
     starting_body_points = np.concatenate((starting_body_points, final_halfstep_position), axis=1)
+
+    print(starting_body_points)
 
     m_x = (starting_body_points[0][2] - starting_body_points[0][1])/(timepoints[1]-timepoints[0])
     m_y = (starting_body_points[1][2] - starting_body_points[1][1])/(timepoints[1]-timepoints[0])
@@ -136,25 +136,50 @@ def main():
         body_position = np.concatenate((body_position,aux), axis=0)
     body_position = np.delete(body_position, 0, axis=0)
 
-    foot_position = np.array([
-                            [-X_BODY_TO_FEET, X_BODY_TO_FEET],
-                            [0,0],
-                            [0,0]
-                            ])
-
+    initial_right_foot_pos  = np.array([0, -Y_BODY_TO_FEET, 0])
+    initial_left_foot_pos   = np.array([0, Y_BODY_TO_FEET, 0])
+    final_right_foot_pos    = np.array([0, -Y_BODY_TO_FEET, 0])
+    final_left_foot_pos     = np.array([STEP_LENGTH/2, Y_BODY_TO_FEET, 0])
+    
     print(body_position.shape)
     print(body_position)
+    print(initial_left_foot_pos)
+    ax.plot(body_position[:,0],body_position[:,1],body_position[:,2], "o")
+    ax.plot([initial_left_foot_pos[0]],
+            [initial_left_foot_pos[1]],
+            [initial_left_foot_pos[2]], "o")
 
-    start_pose_step = Step(mode="RightSupport")
+    ax.plot([initial_right_foot_pos[0]],
+            [initial_right_foot_pos[1]],
+            [initial_right_foot_pos[2]], "o")
 
+    ax.plot([final_left_foot_pos[0]],
+            [final_left_foot_pos[1]],
+            [final_left_foot_pos[2]], "o")
+
+    ax.plot([final_right_foot_pos[0]],
+            [final_right_foot_pos[1]],
+            [final_right_foot_pos[2]], "o")
+
+    #ax.plot(initial_right_foot_pos, "o")
+    plt.show()
+
+    first_step = Step(mode="RightSupport")
+    first_step.timevec = np.linspace(timepoints[0],timepoints[1], math.floor(1/SAMPLE_TIME))
+    
+    #TODO COMENZAR LA TRAYECTORIA POLINOMICA EN XZ PARA LEVANTAR LOS PIES
+    first_step.footleft = getFootSwingTraj(initial_left_foot_pos, final_left_foot_pos, stepHeight, first_step.timevec)
+    first_step.footright = None
     exit()
 
     #################################################################
     ## PART 3: MAKE CONSECUTIVE STEPS
     #################################################################
 
-    footHold_x0 = -0.12
-    footHold_y0 = 0.2
+    #TODO COMENZAR A PARTIR DE AQUI CON EL SIGUIENTE STEP, EL ANTERIOR YA ESTA
+
+    footHold_y0 = -0.12
+    footHold_x0 = 0.2
 
     foot_position = np.concatenate((foot_position, [[footHold_x0],[footHold_y0],[0]]), axis=1)
 
@@ -236,10 +261,26 @@ def changeLeg(finalState, body_position):
 
     return [newInitialState, newFoothold_x, newFoothold_y]
 
-def getFootSwingTraj(footpos0, footpos1, swing_height, initial_state, t0, tf, Ts):
-    pass
+def getFootSwingTraj(initial_foot_position, final_foot_position, swing_height, timeVector):
+    
+    x_0 = initial_foot_position[0]
+    x_1 = final_foot_position[0]
+
+    h = x_0 + (x_1 - x_0)/2
+    k = swing_height
+    a = -k/((-h)**2)
+    x_t = lambda t: t
+    z = lambda x: a(x-h)**2 + k
+    for i in np.arange(0,len(x)):
+
+        aux = np.array([[x, initial_foot_position[0], z(x)]])
+        body_position = np.concatenate((body_position,aux), axis=0)
+
+
+    return 1
 
 def cubicPolyTraj():
     pass
-
-main()
+    
+if __name__ == "__main__":
+    exit(main())
